@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { ClerkProvider, SignedIn, SignedOut, SignInButton, UserButton } from "@clerk/clerk-react";
-// import Home from "./pages/Home";  // Example page
+import Home from "./pages/Home";  // Example page
  import Dashboard from "./pages/Dashboard"; // Protected page
 import ProtectedRoute from "./lib/ProtectedRoute"; // Middleware for protected routes
 
@@ -24,7 +24,7 @@ function App() {
         </header>
 
         <Routes>
-           {/* <Route path="/" element={<Home />} /> */}
+           <Route path="/" element={<Home />} /> 
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} /> 
         </Routes>
       </BrowserRouter>

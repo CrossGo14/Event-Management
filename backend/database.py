@@ -10,7 +10,7 @@ mongo_uri = os.getenv("MONGO_URI")
 
 # Connect to MongoDB
 client = MongoClient(mongo_uri)
-db = client["EventDB"]
+db = client["Eventdb"]
 
 # Define collections
 users_collection = db["users"]
