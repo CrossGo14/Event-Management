@@ -1,29 +1,35 @@
-import { useState } from 'react'
-import './App.css'
-import { SignedIn, SignedOut, SignInButton, UserButton } from "@clerk/clerk-react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import Clerk from './lib/clerk';
-import { ClerkProvider } from '@clerk/clerk-react';
+import { ClerkProvider, SignedIn, SignedOut, SignInButton, UserButton } from "@clerk/clerk-react";
+// import Home from "./pages/Home";  // Example page
+ import Dashboard from "./pages/Dashboard"; // Protected page
+import ProtectedRoute from "./lib/ProtectedRoute"; // Middleware for protected routes
 
-const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
+const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
 if (!PUBLISHABLE_KEY) {
-  throw new Error("Missing Publishable Key")
+  throw new Error("Missing Publishable Key");
 }
+
 function App() {
-  
-
   return (
-    <BrowserRouter>
-       
-       <ClerkProvider publishableKey={PUBLISHABLE_KEY} afterSignOutUrl="/">
-        <Clerk />
-       </ClerkProvider>
-       <Routes>
-        
-       </Routes>
-    </BrowserRouter>
-  )
+    <ClerkProvider publishableKey={PUBLISHABLE_KEY}>
+      <BrowserRouter>
+        <header>
+          <SignedOut>
+            <SignInButton />
+          </SignedOut>
+          <SignedIn>
+            <UserButton />
+          </SignedIn>
+        </header>
+
+        <Routes>
+           {/* <Route path="/" element={<Home />} /> */}
+          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} /> 
+        </Routes>
+      </BrowserRouter>
+    </ClerkProvider>
+  );
 }
 
-export default App
+export default App;
