@@ -3,6 +3,7 @@ import { ClerkProvider, SignedIn, SignedOut, SignInButton, UserButton } from "@c
 import Home from "./pages/Home";  // Example page
  import Dashboard from "./pages/Dashboard"; // Protected page
 import ProtectedRoute from "./lib/ProtectedRoute"; // Middleware for protected routes
+import UserDatabaseSync from "./components/UserDatabaseSync";
 
 const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
@@ -20,6 +21,7 @@ function App() {
           </SignedOut>
           <SignedIn>
             <UserButton />
+            <UserDatabaseSync /> 
           </SignedIn>
         </header>
 
