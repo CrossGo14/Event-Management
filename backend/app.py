@@ -1,21 +1,15 @@
-import os
-from dotenv import load_dotenv
-from pymongo import MongoClient
+from flask import Flask
+from database import db
+from routes.auth_routes import auth_blueprint
+# from routes.event_routes import event_blueprint
 
-# Load environment variables from .env
-load_dotenv()
 
-# Get MongoDB URI from .env
-mongo_uri = os.getenv("MONGO_URI")
+app = Flask(__name__)
+app.config["SECRET_KEY"] = "your_secret_key"
 
-# Connect to MongoDB
-client = MongoClient(mongo_uri)
-db = client["EventDB"]
+# Register routes
+# app.register_blueprint(auth_blueprint, url_prefix="/auth")
+# app.register_blueprint(event_blueprint, url_prefix="/events")
 
-# Define collections
-users_collection = db["users"]
-events_collection = db["events"]
-registrations_collection = db["registrations"]
-feedbacks_collection = db["feedbacks"]
-
-print("Connected to MongoDB successfully!")
+if __name__ == "__main__":
+    app.run(debug=True)
