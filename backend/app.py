@@ -15,9 +15,9 @@ def create_app():
     app.config["SECRET_KEY"] = os.getenv("SECRET_KEY")
 
     # Register Routes
-    app.register_blueprint(auth_blueprint, url_prefix="/auth")
-    app.register_blueprint(event_blueprint, url_prefix="/events")
-
+    # app.register_blueprint(auth_blueprint, url_prefix="/auth")
+    # app.register_blueprint(event_blueprint, url_prefix="/events")
+    app.register_blueprint(event_blueprint)
     return app
 
 # Create app instance
