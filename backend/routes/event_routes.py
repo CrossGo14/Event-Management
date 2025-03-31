@@ -4,6 +4,7 @@ from bson.objectid import ObjectId
 import os
 from werkzeug.utils import secure_filename
 from flask_cors import cross_origin
+import stripe
 
 event_blueprint = Blueprint("event_routes", __name__)
 
@@ -14,6 +15,7 @@ if not os.path.exists(UPLOAD_FOLDER):
 
 # Route to create an event
 @event_blueprint.route("/create", methods=["POST"])
+@cross_origin()
 def create_event():
     data = request.json
 
@@ -205,4 +207,42 @@ def get_event_details(event_id):
         
         return jsonify(event), 200
     except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# Set your Stripe API key
+stripe.api_key = "sk_test_your_stripe_secret_key"
+
+@event_blueprint.route("/create-payment", methods=["POST"])
+@cross_origin()
+def create_payment():
+    try:
+        data = request.json
+        event_id = data.get('eventId')
+        price = data.get('price', 10)  # Default to $10 if not specified
+        title = data.get('title', 'Event Registration')
+        
+        # Create a Stripe Checkout Session
+        checkout_session = stripe.checkout.Session.create(
+            payment_method_types=['card'],
+            line_items=[
+                {
+                    'price_data': {
+                        'currency': 'usd',
+                        'product_data': {
+                            'name': f'Registration for {title}',
+                        },
+                        'unit_amount': int(price * 100),  # Stripe uses cents
+                    },
+                    'quantity': 1,
+                },
+            ],
+            mode='payment',
+            success_url=f'http://localhost:5173/payment-success?event_id={event_id}',
+            cancel_url=f'http://localhost:5173/payment-cancel?event_id={event_id}',
+        )
+        
+        return jsonify({'id': checkout_session.id})
+    except Exception as e:
+        print(f"Error creating payment session: {str(e)}")
         return jsonify({"error": str(e)}), 500

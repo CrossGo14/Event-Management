@@ -8,8 +8,8 @@ def create_app():
     # Initialize Flask application
     app = Flask(__name__)
 
-    # Enable CORS for frontend requests
-    CORS(app)
+    # Enable CORS for all routes with proper configuration
+    CORS(app, resources={r"/*": {"origins": "*", "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"], "allow_headers": ["Content-Type", "Authorization"]}})
 
     # Set secret key from environment
     app.config["SECRET_KEY"] = os.getenv("SECRET_KEY")
@@ -17,7 +17,7 @@ def create_app():
     # Register Routes
     app.register_blueprint(auth_blueprint, url_prefix="/auth")
     app.register_blueprint(event_blueprint, url_prefix="/api/events")
-    # Removed the duplicate registration of event_blueprint
+    
     return app
 
 # Create app instance
