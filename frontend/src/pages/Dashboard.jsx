@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import EventCard from '../components/EventCard';
 
 const Dashboard = () => {
     const [events, setEvents] = useState([]);
@@ -14,34 +15,52 @@ const Dashboard = () => {
     useEffect(() => {
         setLoading(true);
         
-        fetch("http://localhost:5000/all")
-            .then((response) => {
-                if (!response.ok) {
-                    throw new Error(`HTTP error! Status: ${response.status}`);
-                }
-                return response.json();
-            })
-            .then((data) => {
-                console.log("Fetched data:", data);
-                if (Array.isArray(data)) {
-                    setEvents(data);
-                } else {
-                    console.error("Expected array but received:", typeof data);
-                    setError("Data format is not as expected");
-                }
-                setLoading(false);
-            })
-            .catch((error) => {
-                console.error("Error fetching events:", error);
-                setError(error.message);
-                setLoading(false);
-            });
+        fetch("http://localhost:5000/api/events/all")
+    .then((response) => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+        return response.text(); // Get the raw text first
+    })
+    .then((text) => {
+        console.log("Raw response text:", text);
+        // Now parse it as JSON
+        const data = JSON.parse(text);
+        console.log("Parsed data:", data);
+        
+        if (Array.isArray(data)) {
+            // Log the first item's keys to see what properties exist
+            if (data.length > 0) {
+                console.log("First event keys:", Object.keys(data[0]));
+                console.log("First event data:", data[0]);
+            }
+            setEvents(data);
+        } else {
+            console.error("Expected array but received:", typeof data);
+            setError("Data format is not as expected");
+        }
+        setLoading(false);
+    })
+    .catch((error) => {
+        console.error("Error fetching events:", error);
+        setError(error.message);
+        setLoading(false);
+    });
     }, []);
     
     // Apply filters and search
     const filteredEvents = Array.isArray(events) ? events.filter(event => {
-        const searchIn = (event.title || event.name || "").toLowerCase();
+        // Add more fallbacks for the title
+        const searchIn = (event.title || event.name || event.eventName || "").toLowerCase();
         const matchesSearch = searchIn.includes(searchQuery.toLowerCase());
+        
+        // Log the event data for debugging
+        console.log("Processing event:", event);
+        console.log("Event title options:", {
+            title: event.title,
+            name: event.name,
+            eventName: event.eventName
+        });
         
         // Filter logic can be expanded based on actual data structure
         if (activeFilter === "all") return matchesSearch;
@@ -207,52 +226,12 @@ const Dashboard = () => {
                 <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                     {filteredEvents.length > 0 ? (
                         filteredEvents.map((event, index) => (
-                            <div
+                            <EventCard 
                                 key={event._id || index}
-                                className="bg-white overflow-hidden shadow rounded-lg hover:shadow-md transition-shadow duration-300 flex flex-col"
-                            >
-                                <div className="h-32 bg-blue-600 relative">
-                                    <div className="absolute inset-0 flex items-center justify-center">
-                                        <div className="text-white font-bold text-xl">{(event.title || event.name || "Event").slice(0, 1).toUpperCase()}</div>
-                                    </div>
-                                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/50 to-transparent p-4">
-                                        <h3 className="font-bold text-lg text-white truncate">{event.title || event.name || "Untitled Event"}</h3>
-                                    </div>
-                                </div>
-                                <div className="flex-1 p-4">
-                                    <div className="mt-2 space-y-3">
-                                        <div className="flex items-start">
-                                            <div className="flex-shrink-0">
-                                                <svg className="h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                                                    <path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clipRule="evenodd" />
-                                                </svg>
-                                            </div>
-                                            <span className="ml-2 text-sm text-gray-500">{formatDate(event.date)}</span>
-                                        </div>
-                                        <div className="flex items-start">
-                                            <div className="flex-shrink-0">
-                                                <svg className="h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                                                    <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
-                                                </svg>
-                                            </div>
-                                            <span className="ml-2 text-sm text-gray-500 truncate">{event.location || "No location specified"}</span>
-                                        </div>
-                                        <p className="text-sm text-gray-600">
-                                            {truncateDescription(event.description)}
-                                        </p>
-                                    </div>
-                                </div>
-                                <div className="bg-gray-50 px-4 py-3 border-t border-gray-200">
-                                    <div className="flex justify-between">
-                                        <span className="text-xs font-medium text-gray-500">
-                                            {event.attendees ? `${event.attendees.length} attendees` : "0 attendees"}
-                                        </span>
-                                        <button className="text-sm font-medium text-blue-600 hover:text-blue-500">
-                                            View Details
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
+                                event={event}
+                                formatDate={formatDate}
+                                truncateDescription={truncateDescription}
+                            />
                         ))
                     ) : (
                         <div className="col-span-full">
