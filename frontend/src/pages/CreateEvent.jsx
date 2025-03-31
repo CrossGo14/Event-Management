@@ -104,7 +104,7 @@ const CreateEvent = () => {
         organizer_id: userId
       };
       
-      const response = await fetch('http://localhost:5000/create', {
+      const response = await fetch('http://localhost:5000/api/events/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
