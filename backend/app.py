@@ -1,26 +1,44 @@
+# app.py
 import os
 from flask import Flask
 from flask_cors import CORS
-from routes.auth_routes import auth_blueprint
+from dotenv import load_dotenv
+from routes.auth_routes import auth_blueprint, initialize_indexes  # Import initialize_indexes
 from routes.event_routes import event_blueprint
 
 def create_app():
-    # Initialize Flask application
+    # Load environment variables
+    load_dotenv()
+
     app = Flask(__name__)
 
-    # Enable CORS for all routes with proper configuration
-    CORS(app, resources={r"/*": {"origins": "*", "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"], "allow_headers": ["Content-Type", "Authorization"]}})
+    # Enable CORS
+    CORS(app, resources={r"/*": {
+        "origins": "*",
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"]
+    }})
 
-    # Set secret key from environment
-    app.config["SECRET_KEY"] = os.getenv("SECRET_KEY")
+    # Set secret key
+    secret_key = os.getenv("SECRET_KEY")
+    if not secret_key:
+        raise ValueError("SECRET_KEY not found in .env file")
+    app.config["SECRET_KEY"] = secret_key
 
-    # Register Routes
+    # Register blueprints
     app.register_blueprint(auth_blueprint, url_prefix="/auth")
     app.register_blueprint(event_blueprint, url_prefix="/api/events")
-    
+
+    # Initialize database indexes after app creation
+    with app.app_context():
+        initialize_indexes()
+
+    @app.route('/')
+    def health_check():
+        return {"status": "OK", "message": "Event Management API is running"}
+
     return app
 
-# Create app instance
 app = create_app()
 
 if __name__ == "__main__":

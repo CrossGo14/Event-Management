@@ -5,13 +5,29 @@ import os
 from werkzeug.utils import secure_filename
 from flask_cors import cross_origin
 import stripe
+import urllib.parse
+from dotenv import load_dotenv
+import sys
 
+# Load environment variables
+load_dotenv()
+
+# Create blueprint
 event_blueprint = Blueprint("event_routes", __name__)
 
 # Configure upload folder
 UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'uploads')
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
+
+# Set Stripe API key from environment variable with fallback
+stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "sk_test_51R8jhnJoj9GjRK6iewTSQnPbjUbdz7Pxuu9tofTAKGk0P0RkafUUUPBTLiyxMGLzU0GQOh4Nd8ljRbmzx7PLBXuk00LIp7hTsQ")
+print(f"Stripe API key set to: {stripe.api_key[:8]}...")  # Debug key
+
+# Health check route
+@event_blueprint.route('/health', methods=['GET'])
+def health_check():
+    return jsonify({"status": "healthy", "message": "Server is running"}), 200
 
 # Route to create an event
 @event_blueprint.route("/create", methods=["POST"])
@@ -53,79 +69,28 @@ def get_all_events():
         "attendees": 1  # Include attendees count
     }))
     
-    # Convert ObjectId to string and ensure image URLs are properly formatted
     base_url = request.host_url.rstrip('/')
     for event in events:
         event["_id"] = str(event["_id"])
-        
-        # Convert relative image paths to absolute URLs
         if event.get("image_url") and not event["image_url"].startswith(('http://', 'https://')):
             event["image_url"] = f"{base_url}/api/events/images/{event['image_url']}"
-        
         if event.get("banner_image") and not event["banner_image"].startswith(('http://', 'https://')):
             event["banner_image"] = f"{base_url}/api/events/images/{event['banner_image']}"
-        
-        print(f"Event data: {event}")  # Debug print
     
     return jsonify(events), 200
 
 # Route to serve uploaded images
-# In your get_image route
 @event_blueprint.route("/images/<path:filename>", methods=["GET"])
 @cross_origin()
 def get_image(filename):
     try:
-        print(f"Attempting to serve image: {filename}")
-        print(f"Upload folder path: {UPLOAD_FOLDER}")
-        
-        # List files in the upload folder to check if the file exists
-        files_in_folder = os.listdir(UPLOAD_FOLDER)
-        print(f"Files in upload folder: {files_in_folder}")
-        
-        # Remove any URL encoding from the filename
-        import urllib.parse
         decoded_filename = urllib.parse.unquote(filename)
-        print(f"Decoded filename: {decoded_filename}")
-        
-        # Make the filename secure
         secure_name = secure_filename(decoded_filename)
-        print(f"Secure filename: {secure_name}")
-        
-        # Check if file exists
-        file_path = os.path.join(UPLOAD_FOLDER, secure_name)
-        print(f"Full file path: {file_path}")
-        print(f"File exists: {os.path.exists(file_path)}")
-        
-        if not os.path.exists(file_path):
-            print(f"File not found: {file_path}")
-            return jsonify({"error": "Image not found"}), 404
-        
-        # Serve the file
-        return send_from_directory(UPLOAD_FOLDER, secure_name)
-    except Exception as e:
-        print(f"Error serving image: {str(e)}")
-        return jsonify({"error": str(e)}), 500
-    try:
-        print(f"Attempting to serve image: {filename}")
-        print(f"Upload folder path: {UPLOAD_FOLDER}")
-        
-        # Remove any URL encoding from the filename
-        import urllib.parse
-        decoded_filename = urllib.parse.unquote(filename)
-        
-        # Make the filename secure
-        secure_name = secure_filename(decoded_filename)
-        
-        # Check if file exists
         file_path = os.path.join(UPLOAD_FOLDER, secure_name)
         if not os.path.exists(file_path):
-            print(f"File not found: {file_path}")
             return jsonify({"error": "Image not found"}), 404
-        
-        # Serve the file
         return send_from_directory(UPLOAD_FOLDER, secure_name)
     except Exception as e:
-        print(f"Error serving image: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 # Route to upload images
@@ -160,7 +125,6 @@ def register_for_event(event_id):
     if user_id in event["attendees"]:
         return jsonify({"message": "User already registered"}), 200
 
-    # Add user to attendees list
     events_collection.update_one({"_id": ObjectId(event_id)}, {"$push": {"attendees": user_id}})
     return jsonify({"message": "User registered successfully"}), 200
 
@@ -168,13 +132,10 @@ def register_for_event(event_id):
 @event_blueprint.route("/update-images/<event_id>", methods=["PUT"])
 def update_event_images(event_id):
     data = request.json
-    
-    # Check if event exists
     event = events_collection.find_one({"_id": ObjectId(event_id)})
     if not event:
         return jsonify({"error": "Event not found"}), 404
     
-    # Update fields that are provided
     update_data = {}
     if "image_url" in data:
         update_data["image_url"] = data["image_url"]
@@ -186,12 +147,10 @@ def update_event_images(event_id):
     if not update_data:
         return jsonify({"error": "No image data provided"}), 400
     
-    # Update the event
     events_collection.update_one(
         {"_id": ObjectId(event_id)},
         {"$set": update_data}
     )
-    
     return jsonify({"message": "Event images updated successfully"}), 200
 
 # Route to get event details including images
@@ -201,28 +160,26 @@ def get_event_details(event_id):
         event = events_collection.find_one({"_id": ObjectId(event_id)})
         if not event:
             return jsonify({"error": "Event not found"}), 404
-        
-        # Convert ObjectId to string
         event["_id"] = str(event["_id"])
-        
         return jsonify(event), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
-# Set your Stripe API key
-stripe.api_key = "sk_test_your_stripe_secret_key"
-
+# Route to create a payment session
 @event_blueprint.route("/create-payment", methods=["POST"])
 @cross_origin()
 def create_payment():
+    print(f"Stripe API key in use: {stripe.api_key[:8]}...")  # Debug current key
     try:
         data = request.json
         event_id = data.get('eventId')
-        price = data.get('price', 10)  # Default to $10 if not specified
+        price = data.get('price', 10)  # Default to 10 if not provided
         title = data.get('title', 'Event Registration')
-        
-        # Create a Stripe Checkout Session
+        print(f"Received data: {data}")  # Debug print
+
+        if not event_id or not isinstance(price, (int, float)) or price <= 0:
+            return jsonify({"error": "Invalid eventId or price"}), 400
+
         checkout_session = stripe.checkout.Session.create(
             payment_method_types=['card'],
             line_items=[
@@ -232,17 +189,49 @@ def create_payment():
                         'product_data': {
                             'name': f'Registration for {title}',
                         },
-                        'unit_amount': int(price * 100),  # Stripe uses cents
+                        'unit_amount': int(float(price) * 100),  # Convert to cents
                     },
                     'quantity': 1,
                 },
             ],
             mode='payment',
-            success_url=f'http://localhost:5173/payment-success?event_id={event_id}',
-            cancel_url=f'http://localhost:5173/payment-cancel?event_id={event_id}',
+            success_url=f'http://localhost:5173/dashboard?session_id={{CHECKOUT_SESSION_ID}}&payment_status=success&event_id={event_id}',
+            cancel_url=f'http://localhost:5173/dashboard?session_id={{CHECKOUT_SESSION_ID}}&payment_status=cancel&event_id={event_id}',
         )
-        
+        print(f"Created session: {checkout_session.id}")  # Debug print
         return jsonify({'id': checkout_session.id})
+    except stripe.error.StripeError as e:
+        print(f"Stripe error: {str(e)}")  # Debug Stripe-specific errors
+        return jsonify({"error": f"Stripe error: {str(e)}"}), 500
     except Exception as e:
-        print(f"Error creating payment session: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+        print(f"Error creating payment session: {str(e)}")  # Debug print
+        return jsonify({"error": f"Internal server error: {str(e)}"}), 500
+
+# Route to update attendees
+@event_blueprint.route('/update-attendees/<event_id>', methods=['POST'])
+def update_attendees(event_id):
+    print(f"Received update-attendees request for event_id: {event_id}")  # Debug request
+    try:
+        data = request.json
+        user_id = data.get("user_id")
+        print(f"Received user_id: {user_id}")  # Debug user_id
+        if not user_id:
+            return jsonify({"error": "User ID is required"}), 400
+
+        event = events_collection.find_one_and_update(
+            {'_id': ObjectId(event_id)},
+            {'$push': {'attendees': user_id}},
+            return_document=True
+        )
+        if event:
+            print(f"Updated attendees: {event.get('attendees', [])}")  # Debug updated attendees
+            return jsonify({
+                'message': 'Attendee count updated',
+                'attendees': len(event.get('attendees', []))
+            }), 200
+        else:
+            print(f"Event not found for id: {event_id}")  # Debug not found
+            return jsonify({'error': 'Event not found'}), 404
+    except Exception as e:
+        print(f"Error updating attendees: {str(e)}")  # Debug error
+        return jsonify({'error': str(e)}), 500

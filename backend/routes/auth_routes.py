@@ -1,25 +1,23 @@
-import os
+# routes/auth_routes.py
 from flask import Blueprint, request, jsonify
 from flask_cors import cross_origin
-from dotenv import load_dotenv
-from pymongo import MongoClient
+from database import users_collection  # Import from database.py
 from pymongo.errors import DuplicateKeyError
 from datetime import datetime, timezone
 
-# Load environment variables
-load_dotenv()
-
-# MongoDB Connection
-mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017')
-client = MongoClient(mongo_uri)
-db = client.get_database('Eventdb')
-users_collection = db.users
-
-# Create a unique index on clerk_id to prevent duplicates
-users_collection.create_index('clerk_id', unique=True)
-
 # Create authentication blueprint
 auth_blueprint = Blueprint("auth", __name__)
+
+# Defer index creation until runtime
+def initialize_indexes():
+    if users_collection is not None:
+        users_collection.create_index('clerk_id', unique=True)
+        print("Created unique index on 'clerk_id'")
+    else:
+        raise RuntimeError("users_collection is not initialized")
+
+# Call initialize_indexes when the blueprint is registered (handled in app.py)
+initialize_indexes()  # Temporary for testing, move to app.py later
 
 @auth_blueprint.route("/store-user", methods=["POST"])
 @cross_origin()
