@@ -79,6 +79,31 @@ def get_all_events():
     
     return jsonify(events), 200
 
+# Route to fetch user's events
+@event_blueprint.route("/my-events/<user_id>", methods=["GET"])
+def get_user_events(user_id):
+    events = list(events_collection.find({"organizer_id": user_id}, {
+        "_id": 1, 
+        "title": 1, 
+        "description": 1, 
+        "date": 1, 
+        "location": 1, 
+        "organizer_id": 1,
+        "image_url": 1,
+        "banner_image": 1,
+        "attendees": 1
+    }))
+    
+    base_url = request.host_url.rstrip('/')
+    for event in events:
+        event["_id"] = str(event["_id"])
+        if event.get("image_url") and not event["image_url"].startswith(('http://', 'https://')):
+            event["image_url"] = f"{base_url}/api/events/images/{event['image_url']}"
+        if event.get("banner_image") and not event["banner_image"].startswith(('http://', 'https://')):
+            event["banner_image"] = f"{base_url}/api/events/images/{event['banner_image']}"
+    
+    return jsonify(events), 200
+
 # Route to serve uploaded images
 @event_blueprint.route("/images/<path:filename>", methods=["GET"])
 @cross_origin()
@@ -166,20 +191,32 @@ def get_event_details(event_id):
         return jsonify({"error": str(e)}), 500
 
 # Route to create a payment session
+import stripe
+from flask import request, jsonify, redirect, url_for
+
+# Set your Stripe API key - replace with your actual key
+stripe.api_key = "sk_test_51R8jhnJoj9GjRK6iewTSQnPbjUbdz7Pxuu9tofTAKGk0P0RkafUUUPBTLiyxMGLzU0GQOh4Nd8ljRbmzx7PLBXuk00LIp7hTsQ"
+
 @event_blueprint.route("/create-payment", methods=["POST"])
 @cross_origin()
 def create_payment():
-    print(f"Stripe API key in use: {stripe.api_key[:8]}...")  # Debug current key
     try:
         data = request.json
         event_id = data.get('eventId')
-        price = data.get('price', 10)  # Default to 10 if not provided
+        price = data.get('price', 10)  # Default to $10 if not specified
         title = data.get('title', 'Event Registration')
-        print(f"Received data: {data}")  # Debug print
-
-        if not event_id or not isinstance(price, (int, float)) or price <= 0:
-            return jsonify({"error": "Invalid eventId or price"}), 400
-
+        user_id = data.get('userId')  # Get user ID
+        
+        if not event_id:
+            return jsonify({"error": "Event ID is required"}), 400
+            
+        # Check if user is already registered for this event
+        if user_id:
+            event = events_collection.find_one({"_id": ObjectId(event_id)})
+            if event and 'attendees' in event and user_id in event['attendees']:
+                return jsonify({"error": "You are already registered for this event"}), 400
+        
+        # Create a Stripe Checkout Session
         checkout_session = stripe.checkout.Session.create(
             payment_method_types=['card'],
             line_items=[
@@ -189,49 +226,87 @@ def create_payment():
                         'product_data': {
                             'name': f'Registration for {title}',
                         },
-                        'unit_amount': int(float(price) * 100),  # Convert to cents
+                        'unit_amount': int(price * 100),  # Stripe uses cents
                     },
                     'quantity': 1,
                 },
             ],
             mode='payment',
-            success_url=f'http://localhost:5173/dashboard?session_id={{CHECKOUT_SESSION_ID}}&payment_status=success&event_id={event_id}',
-            cancel_url=f'http://localhost:5173/dashboard?session_id={{CHECKOUT_SESSION_ID}}&payment_status=cancel&event_id={event_id}',
+            success_url=f'http://localhost:5173/registered-events?payment_status=success&session_id={{CHECKOUT_SESSION_ID}}&event_id={event_id}',
+            cancel_url=f'http://localhost:5173/registered-events?payment_status=cancel&event_id={event_id}',
+            metadata={
+                'event_id': event_id,
+                'user_id': user_id
+            }
         )
-        print(f"Created session: {checkout_session.id}")  # Debug print
+        
         return jsonify({'id': checkout_session.id})
-    except stripe.error.StripeError as e:
-        print(f"Stripe error: {str(e)}")  # Debug Stripe-specific errors
-        return jsonify({"error": f"Stripe error: {str(e)}"}), 500
     except Exception as e:
-        print(f"Error creating payment session: {str(e)}")  # Debug print
-        return jsonify({"error": f"Internal server error: {str(e)}"}), 500
+        print(f"Error creating payment session: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
-# Route to update attendees
+# Fix the update-attendees endpoint
 @event_blueprint.route('/update-attendees/<event_id>', methods=['POST'])
+@cross_origin()
 def update_attendees(event_id):
-    print(f"Received update-attendees request for event_id: {event_id}")  # Debug request
+    print(f"Received update-attendees request for event_id: {event_id}")
     try:
         data = request.json
         user_id = data.get("user_id")
-        print(f"Received user_id: {user_id}")  # Debug user_id
+        session_id = data.get("session_id")
+        print(f"Received user_id: {user_id}, session_id: {session_id}")
+        
         if not user_id:
             return jsonify({"error": "User ID is required"}), 400
 
-        event = events_collection.find_one_and_update(
+        # Check if event exists
+        event = events_collection.find_one({'_id': ObjectId(event_id)})
+        if not event:
+            return jsonify({'error': 'Event not found'}), 404
+            
+        # Initialize attendees array if it doesn't exist
+        if 'attendees' not in event:
+            events_collection.update_one(
+                {'_id': ObjectId(event_id)},
+                {'$set': {'attendees': [], 'payment_sessions': []}}
+            )
+            
+        # Check if user is already registered
+        if user_id in event.get('attendees', []):
+            return jsonify({
+                'error': 'User already registered',
+                'attendees': len(event.get('attendees', []))
+            }), 400
+
+        # Check if this payment session was already processed
+        if session_id and 'payment_sessions' in event and session_id in event.get('payment_sessions', []):
+            return jsonify({
+                'error': 'Payment already processed',
+                'attendees': len(event.get('attendees', []))
+            }), 400
+
+        # Add user to attendees and track payment session
+        update_data = {'$addToSet': {'attendees': user_id}}
+        
+        # If session_id is provided, add it to payment_sessions
+        if session_id:
+            update_data['$addToSet']['payment_sessions'] = session_id
+            
+        updated_event = events_collection.find_one_and_update(
             {'_id': ObjectId(event_id)},
-            {'$push': {'attendees': user_id}},
+            update_data,  # Use addToSet to avoid duplicates
             return_document=True
         )
-        if event:
-            print(f"Updated attendees: {event.get('attendees', [])}")  # Debug updated attendees
+        
+        if updated_event:
+            print(f"Updated attendees: {updated_event.get('attendees', [])}")
             return jsonify({
                 'message': 'Attendee count updated',
-                'attendees': len(event.get('attendees', []))
+                'attendees': len(updated_event.get('attendees', []))
             }), 200
         else:
-            print(f"Event not found for id: {event_id}")  # Debug not found
+            print(f"Event not found for id: {event_id}")
             return jsonify({'error': 'Event not found'}), 404
     except Exception as e:
-        print(f"Error updating attendees: {str(e)}")  # Debug error
+        print(f"Error updating attendees: {str(e)}")
         return jsonify({'error': str(e)}), 500

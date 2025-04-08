@@ -5,6 +5,7 @@ from flask_cors import CORS
 from dotenv import load_dotenv
 from routes.auth_routes import auth_blueprint, initialize_indexes  # Import initialize_indexes
 from routes.event_routes import event_blueprint
+from routes.feedback_routes import feedback_blueprint
 
 def create_app():
     # Load environment variables
@@ -28,6 +29,7 @@ def create_app():
     # Register blueprints
     app.register_blueprint(auth_blueprint, url_prefix="/auth")
     app.register_blueprint(event_blueprint, url_prefix="/api/events")
+    app.register_blueprint(feedback_blueprint, url_prefix="/api/feedback")
 
     # Initialize database indexes after app creation
     with app.app_context():
