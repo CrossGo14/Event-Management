@@ -1,24 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useUser } from '@clerk/clerk-react';
 import EventCard from '../components/EventCard';
 import { Search, Plus, Loader, AlertTriangle, Calendar } from 'lucide-react';
 import Navbar from '../components/Navbar';
 
-const Dashboard = () => {
+const MyEvents = () => {
     const [events, setEvents] = useState([]);
     const [searchQuery, setSearchQuery] = useState("");
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [activeFilter, setActiveFilter] = useState("all");
     const [showNotification, setShowNotification] = useState(false);
     
     const navigate = useNavigate();
+    const { user } = useUser();
     
-    // Fetch events from backend
+    // Fetch user's events from backend
     useEffect(() => {
+        if (!user) return;
+        
         setLoading(true);
         
-        fetch("http://localhost:5000/api/events/all")
+        fetch(`http://localhost:5000/api/events/my-events/${user.id}`)
             .then((response) => {
                 if (!response.ok) {
                     throw new Error(`HTTP error! Status: ${response.status}`);
@@ -50,23 +53,12 @@ const Dashboard = () => {
                 setError(error.message);
                 setLoading(false);
             });
-    }, []);
+    }, [user]);
     
-    // Apply filters and search
+    // Apply search filter
     const filteredEvents = Array.isArray(events) ? events.filter(event => {
         const searchIn = (event.title || event.name || event.eventName || "").toLowerCase();
-        const matchesSearch = searchIn.includes(searchQuery.toLowerCase());
-        
-        if (activeFilter === "all") return matchesSearch;
-        if (activeFilter === "upcoming") {
-            const eventDate = new Date(event.date);
-            return matchesSearch && eventDate >= new Date();
-        }
-        if (activeFilter === "past") {
-            const eventDate = new Date(event.date);
-            return matchesSearch && eventDate < new Date();
-        }
-        return matchesSearch;
+        return searchIn.includes(searchQuery.toLowerCase());
     }) : [];
     
     // Function to format date
@@ -97,7 +89,7 @@ const Dashboard = () => {
         <div className="min-h-screen bg-gray-50 flex justify-center items-center">
             <div className="bg-white p-8 rounded-lg shadow-lg flex flex-col items-center">
                 <Loader className="animate-spin text-blue-600 h-10 w-10 mb-4" />
-                <div className="text-blue-600 text-xl font-semibold">Loading events...</div>
+                <div className="text-blue-600 text-xl font-semibold">Loading your events...</div>
                 <p className="text-gray-500 mt-2">Please wait while we fetch your events</p>
             </div>
         </div>
@@ -145,18 +137,18 @@ const Dashboard = () => {
                     <div className="md:flex md:items-center md:justify-between">
                         <div className="flex-1 min-w-0">
                             <h2 className="text-2xl font-bold leading-7 text-gray-900 sm:text-3xl sm:truncate">
-                                Events Dashboard
+                                My Events
                             </h2>
                             <p className="mt-1 text-sm text-gray-500">
-                                Browse, search, and manage your events in one place
+                                View and manage events you've created
                             </p>
                         </div>
                         <div className="mt-4 md:mt-0 md:ml-4 flex space-x-3">
                             <button
-                                onClick={() => navigate('/my-events')}
+                                onClick={() => navigate('/dashboard')}
                                 className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-150 ease-in-out"
                             >
-                                My Events
+                                All Events
                             </button>
                             <button
                                 onClick={() => navigate('/create-event')}
@@ -169,32 +161,9 @@ const Dashboard = () => {
                     </div>
                 </div>
                 
-                {/* Filters and Search - Redesigned */}
+                {/* Search */}
                 <div className="bg-white shadow rounded-lg mb-8">
                     <div className="p-4 sm:flex sm:items-center sm:justify-between flex-wrap gap-4">
-                        <div className="flex items-center space-x-2">
-                            <button 
-                                className={`px-4 py-2 rounded-md text-sm font-medium transition-all duration-150 flex items-center ${activeFilter === 'all' ? 'bg-blue-600 text-white shadow-md' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
-                                onClick={() => setActiveFilter('all')}
-                            >
-                                <span className="mr-2">🔍</span>
-                                All Events
-                            </button>
-                            <button 
-                                className={`px-4 py-2 rounded-md text-sm font-medium transition-all duration-150 flex items-center ${activeFilter === 'upcoming' ? 'bg-blue-600 text-white shadow-md' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
-                                onClick={() => setActiveFilter('upcoming')}
-                            >
-                                <span className="mr-2">📅</span>
-                                Upcoming
-                            </button>
-                            <button 
-                                className={`px-4 py-2 rounded-md text-sm font-medium transition-all duration-150 flex items-center ${activeFilter === 'past' ? 'bg-blue-600 text-white shadow-md' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
-                                onClick={() => setActiveFilter('past')}
-                            >
-                                <span className="mr-2">⏱️</span>
-                                Past
-                            </button>
-                        </div>
                         <div className="mt-4 sm:mt-0 relative flex-grow max-w-sm">
                             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                                 <Search className="h-5 w-5 text-gray-400" />
@@ -202,7 +171,7 @@ const Dashboard = () => {
                             <input
                                 type="text"
                                 className="focus:ring-blue-500 focus:border-blue-500 block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md transition-colors duration-150"
-                                placeholder="Search events..."
+                                placeholder="Search your events..."
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                             />
@@ -210,7 +179,7 @@ const Dashboard = () => {
                     </div>
                 </div>
                 
-                {/* Events Grid - Enhanced */}
+                {/* Events Grid */}
                 {filteredEvents.length > 0 ? (
                     <>
                         <div className="mb-6">
@@ -237,10 +206,10 @@ const Dashboard = () => {
                         <h3 className="mt-6 text-xl font-semibold text-gray-900">No events found</h3>
                         <p className="mt-2 text-gray-500 max-w-md mx-auto">
                             {searchQuery 
-                                ? `We couldn't find any events matching "${searchQuery}". Try a different search term or clear your filters.` 
-                                : "Get started by creating a new event or changing your filter settings."}
+                                ? `We couldn't find any of your events matching "${searchQuery}". Try a different search term.` 
+                                : "You haven't created any events yet. Get started by creating your first event."}
                         </p>
-                        <div className="mt-8 flex flex-col sm:flex-row gap-4 justify-center">
+                        <div className="mt-8">
                             <button
                                 onClick={() => navigate('/create-event')}
                                 className="inline-flex items-center justify-center px-6 py-3 border border-transparent rounded-md shadow-sm text-base font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors duration-150"
@@ -248,14 +217,6 @@ const Dashboard = () => {
                                 <Plus className="h-5 w-5 mr-2" />
                                 Create New Event
                             </button>
-                            {searchQuery && (
-                                <button
-                                    onClick={() => setSearchQuery('')}
-                                    className="inline-flex items-center justify-center px-6 py-3 border border-gray-300 rounded-md shadow-sm text-base font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors duration-150"
-                                >
-                                    Clear Search
-                                </button>
-                            )}
                         </div>
                     </div>
                 )}
@@ -295,4 +256,4 @@ const Dashboard = () => {
     );
 };
 
-export default Dashboard;
+export default MyEvents;

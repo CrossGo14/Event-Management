@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { loadStripe } from '@stripe/stripe-js';
+import { useUser } from '@clerk/clerk-react';
 
 // Debug and load Stripe with publishable key from environment variable
 console.log('Stripe Publishable Key:', import.meta.env.VITE_REACT_APP_STRIPE_PUBLISHABLE_KEY);
@@ -9,6 +10,7 @@ const stripePromise = import.meta.env.VITE_REACT_APP_STRIPE_PUBLISHABLE_KEY
   : loadStripe('pk_test_51R8jhnJoj9GjRK6iM2qsKXZfCa7i8TMbSD5E4QAUZ37IowaZqXSolVfFm3F994GF3D1FcmD8V1KsGTLGcTmgobpE00fD9EgVwh'); // Use your publishable key
 
 const EventCard = ({ event, formatDate, truncateDescription }) => {
+  const { user } = useUser();
   const formatDateFn = formatDate || ((date) => {
     if (!date) return "No date specified";
     try {
@@ -33,6 +35,7 @@ const EventCard = ({ event, formatDate, truncateDescription }) => {
   const location = event.location || "No location specified";
   const date = event.date || "";
   const attendees = event.attendees || [];
+  const attendeeCount = attendees.length;
   const imageUrl = event.image_url || "";
   const price = event.price || 10;
   const eventId = event._id; // Ensure event has an _id
@@ -42,6 +45,7 @@ const EventCard = ({ event, formatDate, truncateDescription }) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [sessionId, setSessionId] = useState(null);
   const [paymentStatus, setPaymentStatus] = useState(null);
+  const [isUserRegistered, setIsUserRegistered] = useState(false);
 
   const getImageUrl = (url) => {
     if (!url) return null;
@@ -79,7 +83,12 @@ const EventCard = ({ event, formatDate, truncateDescription }) => {
       const response = await fetch('http://localhost:5000/api/events/create-payment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ eventId, price, title }),
+        body: JSON.stringify({ 
+          eventId, 
+          price, 
+          title,
+          userId: user ? user.id : 'anonymous'
+        }),
       });
 
       if (!response.ok) {
@@ -106,6 +115,13 @@ const EventCard = ({ event, formatDate, truncateDescription }) => {
     }
   };
 
+  // Check if user is already registered for this event
+  useEffect(() => {
+    if (user && event.attendees) {
+      setIsUserRegistered(event.attendees.includes(user.id));
+    }
+  }, [user, event.attendees]);
+
   useEffect(() => {
     const query = new URLSearchParams(window.location.search);
     const sessionIdFromUrl = query.get('session_id');
@@ -122,7 +138,7 @@ const EventCard = ({ event, formatDate, truncateDescription }) => {
           const response = await fetch(`http://localhost:5000/api/events/update-attendees/${eventId}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: 'test_user_123' }), // Hardcoded for testing
+            body: JSON.stringify({ user_id: user ? user.id : localStorage.getItem('userId') || 'anonymous' }),
           });
 
           console.log('Update attendees response status:', response.status); // Debug response
@@ -186,6 +202,13 @@ const EventCard = ({ event, formatDate, truncateDescription }) => {
               </div>
               <span className="ml-2 text-sm text-gray-600 truncate">{location}</span>
             </div>
+            
+            <div className="flex items-center text-gray-500 text-sm mb-2">
+              <svg className="h-4 w-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path>
+              </svg>
+              <span>{attendeeCount} {attendeeCount === 1 ? 'Attendee' : 'Attendees'}</span>
+            </div>
 
             <p className="text-sm text-gray-600 line-clamp-3">
               {truncateDescriptionFn(description)}
@@ -203,15 +226,26 @@ const EventCard = ({ event, formatDate, truncateDescription }) => {
                 {Array.isArray(attendees) ? `${attendees.length} attendees` : "0 attendees"}
               </span>
             </div>
-            <button
-              onClick={() => setShowModal(true)}
-              className="text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors duration-150 flex items-center"
-            >
-              View Details
-              <svg className="ml-1 h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-              </svg>
-            </button>
+            <div className="flex space-x-2">
+              <button
+                onClick={() => setShowModal(true)}
+                className="text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors duration-150 flex items-center"
+              >
+                View Details
+                <svg className="ml-1 h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                </svg>
+              </button>
+              {user && (
+                <button
+                  onClick={() => setShowModal(true)}
+                  disabled={isUserRegistered}
+                  className={`text-sm font-medium ${isUserRegistered ? 'text-gray-400 cursor-not-allowed' : 'text-green-600 hover:text-green-700'} transition-colors duration-150 flex items-center`}
+                >
+                  {isUserRegistered ? 'Registered' : 'Register'}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>

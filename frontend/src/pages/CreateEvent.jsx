@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@clerk/clerk-react';
 import DatePicker from 'react-datepicker';
 import "react-datepicker/dist/react-datepicker.css";
+import Navbar from '../components/Navbar';
 
 const CreateEvent = () => {
   const navigate = useNavigate();
@@ -129,7 +130,10 @@ const CreateEvent = () => {
   };
   
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <>
+      <Navbar />
+      
+      
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <div className="px-4 py-5 sm:p-6">
@@ -379,7 +383,8 @@ const CreateEvent = () => {
           </div>
         </div>
       </div>
-    </div>
+    
+    </>
   );
 };
 
