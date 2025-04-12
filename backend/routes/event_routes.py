@@ -7,7 +7,8 @@ from flask_cors import cross_origin
 import stripe
 import urllib.parse
 from dotenv import load_dotenv
-import sys
+import traceback
+import json
 
 # Load environment variables
 load_dotenv()
@@ -46,9 +47,11 @@ def create_event():
         "location": data["location"],
         "organizer_id": data["organizer_id"],  # Clerk user ID
         "attendees": [],  # Empty list initially
+        "attendee_count": 0,  # Initialize attendee count
         "image_url": data.get("image_url", ""),  # Store image URL with default empty string
         "banner_image": data.get("banner_image", ""),  # Optional banner image
-        "gallery_images": data.get("gallery_images", [])  # Optional array of additional images
+        "gallery_images": data.get("gallery_images", []),  # Optional array of additional images
+        "payment_sessions": []  # Track processed payment sessions
     }
 
     event_id = events_collection.insert_one(event).inserted_id
@@ -66,7 +69,8 @@ def get_all_events():
         "organizer_id": 1,
         "image_url": 1,  # Include image URL in response
         "banner_image": 1,  # Include banner image in response
-        "attendees": 1  # Include attendees count
+        "attendees": 1,
+        "attendee_count": 1  # Include attendee count
     }))
     
     base_url = request.host_url.rstrip('/')
@@ -91,7 +95,8 @@ def get_user_events(user_id):
         "organizer_id": 1,
         "image_url": 1,
         "banner_image": 1,
-        "attendees": 1
+        "attendees": 1,
+        "attendee_count": 1
     }))
     
     base_url = request.host_url.rstrip('/')
@@ -179,44 +184,24 @@ def update_event_images(event_id):
     return jsonify({"message": "Event images updated successfully"}), 200
 
 # Route to get event details including images
-@event_blueprint.route("/<event_id>", methods=["GET"])
-def get_event_details(event_id):
-    try:
-        event = events_collection.find_one({"_id": ObjectId(event_id)})
-        if not event:
-            return jsonify({"error": "Event not found"}), 404
-        event["_id"] = str(event["_id"])
-        return jsonify(event), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-# Route to create a payment session
-import stripe
-from flask import request, jsonify, redirect, url_for
-
-# Set your Stripe API key - replace with your actual key
-stripe.api_key = "sk_test_51R8jhnJoj9GjRK6iewTSQnPbjUbdz7Pxuu9tofTAKGk0P0RkafUUUPBTLiyxMGLzU0GQOh4Nd8ljRbmzx7PLBXuk00LIp7hTsQ"
-
 @event_blueprint.route("/create-payment", methods=["POST"])
 @cross_origin()
 def create_payment():
     try:
         data = request.json
         event_id = data.get('eventId')
-        price = data.get('price', 10)  # Default to $10 if not specified
+        price = data.get('price', 10)
         title = data.get('title', 'Event Registration')
-        user_id = data.get('userId')  # Get user ID
+        user_id = data.get('userId')
         
         if not event_id:
             return jsonify({"error": "Event ID is required"}), 400
             
-        # Check if user is already registered for this event
         if user_id:
             event = events_collection.find_one({"_id": ObjectId(event_id)})
             if event and 'attendees' in event and user_id in event['attendees']:
                 return jsonify({"error": "You are already registered for this event"}), 400
         
-        # Create a Stripe Checkout Session
         checkout_session = stripe.checkout.Session.create(
             payment_method_types=['card'],
             line_items=[
@@ -226,14 +211,14 @@ def create_payment():
                         'product_data': {
                             'name': f'Registration for {title}',
                         },
-                        'unit_amount': int(price * 100),  # Stripe uses cents
+                        'unit_amount': int(price * 100),
                     },
                     'quantity': 1,
                 },
             ],
             mode='payment',
-            success_url=f'http://localhost:5173/registered-events?payment_status=success&session_id={{CHECKOUT_SESSION_ID}}&event_id={event_id}',
-            cancel_url=f'http://localhost:5173/registered-events?payment_status=cancel&event_id={event_id}',
+            success_url=f'http://localhost:5173/payment-success?payment_status=success&session_id={{CHECKOUT_SESSION_ID}}&event_id={event_id}&user_id={user_id}',
+            cancel_url=f'http://localhost:5173/events?payment_status=cancel&event_id={event_id}',
             metadata={
                 'event_id': event_id,
                 'user_id': user_id
@@ -259,54 +244,216 @@ def update_attendees(event_id):
         if not user_id:
             return jsonify({"error": "User ID is required"}), 400
 
-        # Check if event exists
-        event = events_collection.find_one({'_id': ObjectId(event_id)})
+        try:
+            object_id = ObjectId(event_id)
+        except:
+            return jsonify({'error': 'Invalid event ID format'}), 400
+
+        event = events_collection.find_one({'_id': object_id})
         if not event:
             return jsonify({'error': 'Event not found'}), 404
             
-        # Initialize attendees array if it doesn't exist
         if 'attendees' not in event:
             events_collection.update_one(
-                {'_id': ObjectId(event_id)},
-                {'$set': {'attendees': [], 'payment_sessions': []}}
+                {'_id': object_id},
+                {'$set': {'attendees': [], 'attendee_count': 0, 'payment_sessions': []}}
             )
+            event = events_collection.find_one({'_id': object_id})
             
-        # Check if user is already registered
         if user_id in event.get('attendees', []):
             return jsonify({
-                'error': 'User already registered',
-                'attendees': len(event.get('attendees', []))
-            }), 400
+                'message': 'User already registered',
+                'attendees': len(event.get('attendees', [])),
+                'attendee_count': event.get('attendee_count', len(event.get('attendees', [])))
+            }), 200
 
-        # Check if this payment session was already processed
-        if session_id and 'payment_sessions' in event and session_id in event.get('payment_sessions', []):
+        if session_id and session_id in event.get('payment_sessions', []):
             return jsonify({
-                'error': 'Payment already processed',
-                'attendees': len(event.get('attendees', []))
-            }), 400
+                'message': 'Payment already processed',
+                'attendees': len(event.get('attendees', [])),
+                'attendee_count': event.get('attendee_count', len(event.get('attendees', [])))
+            }), 200
 
-        # Add user to attendees and track payment session
-        update_data = {'$addToSet': {'attendees': user_id}}
-        
-        # If session_id is provided, add it to payment_sessions
+        update_data = {
+            '$addToSet': {'attendees': user_id},
+            '$inc': {'attendee_count': 1}
+        }
         if session_id:
-            update_data['$addToSet']['payment_sessions'] = session_id
+            if 'payment_sessions' not in event:
+                update_data['$set'] = {'payment_sessions': [session_id]}
+            else:
+                update_data['$addToSet']['payment_sessions'] = session_id
             
-        updated_event = events_collection.find_one_and_update(
-            {'_id': ObjectId(event_id)},
-            update_data,  # Use addToSet to avoid duplicates
-            return_document=True
-        )
+        result = events_collection.update_one({'_id': object_id}, update_data)
         
-        if updated_event:
-            print(f"Updated attendees: {updated_event.get('attendees', [])}")
+        if result.modified_count > 0 or result.matched_count > 0:
+            updated_event = events_collection.find_one({'_id': object_id})
+            updated_attendees = updated_event.get('attendees', [])
             return jsonify({
                 'message': 'Attendee count updated',
-                'attendees': len(updated_event.get('attendees', []))
+                'attendees': len(updated_attendees),
+                'attendee_count': updated_event.get('attendee_count', len(updated_attendees))
             }), 200
         else:
-            print(f"Event not found for id: {event_id}")
-            return jsonify({'error': 'Event not found'}), 404
+            return jsonify({'error': 'Failed to update attendees'}), 500
     except Exception as e:
+        traceback.print_exc()
         print(f"Error updating attendees: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+    
+
+# Stripe webhook handler
+@event_blueprint.route('/webhook', methods=['POST'])
+def stripe_webhook():
+    print("Webhook received - Raw data:", request.get_data(as_text=True))  # Log raw payload
+    print("Headers:", dict(request.headers))  # Log all headers
+    payload = request.get_data(as_text=True)
+    sig_header = request.headers.get('Stripe-Signature')
+    try:
+        webhook_secret = os.getenv('STRIPE_WEBHOOK_SECRET')
+        if webhook_secret:
+            event = stripe.Webhook.construct_event(payload, sig_header, webhook_secret)
+            print("Verified webhook event:", event['type'])
+        else:
+            event = json.loads(payload)
+            print("Unverified webhook event (no secret):", event['type'])
+        
+        if event['type'] == 'checkout.session.completed':
+            session = event['data']['object']
+            event_id = session.get('metadata', {}).get('event_id')
+            user_id = session.get('metadata', {}).get('user_id')
+            session_id = session.get('id')
+            print(f"Processing payment: event_id={event_id}, user_id={user_id}, session_id={session_id}")
+            
+            if event_id and user_id:
+                try:
+                    object_id = ObjectId(event_id)
+                except:
+                    print("Invalid event_id format:", event_id)
+                    return jsonify({'error': 'Invalid event ID format'}), 400
+
+                event = events_collection.find_one({'_id': object_id})
+                if not event:
+                    print("Event not found for id:", event_id)
+                    return jsonify({'error': 'Event not found'}), 404
+
+                if user_id in event.get('attendees', []):
+                    print("User already registered:", user_id)
+                    return jsonify({'status': 'success'}), 200
+
+                if session_id and session_id in event.get('payment_sessions', []):
+                    print("Session already processed:", session_id)
+                    return jsonify({'status': 'success'}), 200
+
+                update_data = {
+                    '$addToSet': {'attendees': user_id, 'payment_sessions': session_id},
+                    '$inc': {'attendee_count': 1}
+                }
+                result = events_collection.update_one({'_id': object_id}, update_data)
+                print(f"Update result: modified={result.modified_count}, matched={result.matched_count}")
+                if result.modified_count == 0:
+                    print("No update applied, event doc:", events_collection.find_one({'_id': object_id}))
+
+        return jsonify({'status': 'success'}), 200
+    except ValueError as e:
+        print("Invalid payload error:", str(e))
+        return jsonify({'error': 'Invalid payload'}), 400
+    except stripe.error.SignatureVerificationError as e:
+        print("Signature verification failed:", str(e))
+        return jsonify({'error': 'Invalid signature'}), 400
+    except Exception as e:
+        print("Webhook error:", str(e))
+        return jsonify({'error': str(e)}), 500
+    
+
+@event_blueprint.route('/<event_id>/comments', methods=['GET'])
+@cross_origin()
+def get_event_comments(event_id):
+    try:
+        # Convert string ID to ObjectId
+        event_oid = ObjectId(event_id)
+        
+        # Find the event
+        event = events_collection.find_one({'_id': event_oid})
+        if not event:
+            return jsonify({'error': 'Event not found'}), 404
+        
+        # Get comments from the event or return empty list if none
+        comments = event.get('comments', [])
+        
+        # Sort comments by created_at timestamp (newest first)
+        comments.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+        
+        return jsonify({'comments': comments}), 200
+    
+    except Exception as e:
+        print(f"Error fetching comments: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+# Add a new comment to an event
+@event_blueprint.route('/<event_id>/comments', methods=['POST'])
+@cross_origin()
+def add_event_comment(event_id):
+    try:
+        # Convert string ID to ObjectId
+        event_oid = ObjectId(event_id)
+        
+        # Get comment data from request
+        data = request.json
+        if not data or 'text' not in data or not data['text'].strip():
+            return jsonify({'error': 'Comment text is required'}), 400
+        
+        # Create comment object with a unique ID
+        from datetime import datetime
+        comment = {
+            '_id': str(ObjectId()),  # Generate a unique ID for the comment
+            'user_id': data.get('user_id', 'anonymous'),
+            'username': data.get('username', 'Anonymous'),
+            'text': data['text'].strip(),
+            'created_at': datetime.utcnow().isoformat()
+        }
+        
+        # Update the event with the new comment
+        # If 'comments' field doesn't exist yet, it will be created
+        result = events_collection.update_one(
+            {'_id': event_oid}, 
+            {'$push': {'comments': comment}}
+        )
+        
+        if result.modified_count == 0:
+            # Check if the event exists but no modification was made
+            event = events_collection.find_one({'_id': event_oid})
+            if not event:
+                return jsonify({'error': 'Event not found'}), 404
+        
+        return jsonify({'message': 'Comment added successfully', 'comment': comment}), 201
+    
+    except Exception as e:
+        print(f"Error adding comment: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+# Optional: Delete a comment
+@event_blueprint.route('/<event_id>/comments/<comment_id>', methods=['DELETE'])
+@cross_origin()
+def delete_event_comment(event_id, comment_id):
+    try:
+        # Convert string ID to ObjectId
+        event_oid = ObjectId(event_id)
+        
+        # Check if user has permission (you may want to implement this)
+        # For now we'll allow any deletion
+        
+        # Update the event by removing the comment with the given ID
+        result = events_collection.update_one(
+            {'_id': event_oid},
+            {'$pull': {'comments': {'_id': comment_id}}}
+        )
+        
+        if result.modified_count == 0:
+            return jsonify({'error': 'Event or comment not found'}), 404
+        
+        return jsonify({'message': 'Comment deleted successfully'}), 200
+    
+    except Exception as e:
+        print(f"Error deleting comment: {str(e)}")
         return jsonify({'error': str(e)}), 500
